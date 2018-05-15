@@ -4,8 +4,7 @@ import sys
 import time
 import argparse 
 
-LISKY_PATH = "./node_modules/.bin/lisky"
-ENABLE_LISK_1 = False
+ENABLE_VERSION_1 = False
 
 if sys.version_info[0] < 3:
 	print ('python2 not supported, please use python3')
@@ -74,16 +73,11 @@ def createPaymentLine (to, amount):
 	if conf['secondsecret'] != None:
 		data['secondSecret'] = conf['secondsecret']
 
-	if conf['coin'] == 'LISK' and ENABLE_LISK_1:
-		liskyline = LISKY_PATH + ' create trasaction transfer -j --passphrase \'pass:' + conf['secret'] + '\''
-		if conf['secondsecret'] != None:
-			liskyline += ' --second-passphrase \'pass:' + conf['secondsecret'] + '\''
-		liskyline += ' ' + str (amount) + ' ' + to
-		
-		# TODO: we don't know which API accept this data
-		return 'curl -k -H  "Content-Type: application/json" -X POST -d \'`' + liskyline + '`\' ' + conf['nodepay'] + "/api/transactions\n\nsleep 1\n"
-	else:	
-		return 'curl -k -H  "Content-Type: application/json" -X PUT -d \'' + json.dumps (data) + '\' ' + conf['nodepay'] + "/api/transactions\n\nsleep 1\n"
+	nodepay = conf['nodepay']
+	if ENABLE_VERSION_1:
+		nodepay = 'http://localhost:6990'
+
+	return 'curl -k -H  "Content-Type: application/json" -X PUT -d \'' + json.dumps (data) + '\' ' + nodepay + "/api/transactions\n\nsleep 1\n"
 			
 
 def estimatePayouts (log):
@@ -113,6 +107,9 @@ def estimatePayouts (log):
 	for x in d['accounts']:
 		if x['balance'] == '0' or x['address'] in conf['skip']:
 			continue
+
+		if conf['private'] and not (x['address'] in conf['whitelist']):
+			continue
 			
 		weight += float (x['balance']) / 100000000
 		
@@ -122,6 +119,9 @@ def estimatePayouts (log):
 		if int (x['balance']) == 0 or x['address'] in conf['skip']:
 			continue
 			
+		if conf['private'] and not (x['address'] in conf['whitelist']):
+			continue
+
 		payouts.append ({ "address": x['address'], "balance": (float (x['balance']) / 100000000 * forged) / weight})
 		#print (float (x['balance']) / 100000000, payouts [x['address']], x['address'])
 		
@@ -134,6 +134,13 @@ def pool ():
 	(topay, log, forged) = estimatePayouts (log)
 		
 	f = open ('payments.sh', 'w')
+
+	if ENABLE_VERSION_1:
+		f.write ("echo Starting dpos-api-fallback\n")
+		f.write ("node dpos-api-fallback/dist/index.js start -n " + conf['nodepay'] + " -s " + conf['coin'][0] + "&\n")
+		f.write ("DPOSFALLBACK_PID=$!\n")
+		f.write ("sleep 4\n")
+
 	for x in topay:
 		# Create the row if not present
 		if not (x['address'] in log['accounts']) and x['balance'] != 0.0:
@@ -185,7 +192,8 @@ def pool ():
 			f.write ('echo Sending donation ' + str (conf['donationspercentage'][y]) + '% \(' + str (am) + 'LSK\) to ' + y + '\n')	
 			f.write (createPaymentLine (y, am))
 
-
+	if ENABLE_VERSION_1:
+		f.write ("kill $DPOSFALLBACK_PID\n")
 	f.close ()
 	
 	# Update last payout
