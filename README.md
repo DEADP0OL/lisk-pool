@@ -49,7 +49,7 @@ Also, replace docs/index.html with docs/index.ark.html
 
 First clone the lisk-pool repository and install requests:
 
-```git clone https://github.com/dakk/lisk-pool```
+```git clone https://github.com/DEADP0OL/lisk-pool```
 
 ```cd lisk-pool```
 
