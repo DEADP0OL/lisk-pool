@@ -100,7 +100,7 @@ def estimatePayouts (log):
 	print ('To distribute: %f %s' % (forged, conf['coin']))
 	
 	if forged < .1:
-		return ([], log, 0.0)
+		return ([], log, 0.0, rew)
 		
 	d = requests.get (conf['node'] + '/api/delegates/voters?publicKey=' + conf['pubkey']).json ()
 	
@@ -145,7 +145,7 @@ def pool ():
 
 	for x in topay:
 		# Create the row if not present
-		if not (x['address'] in log['accounts']) and x['balance'] != 0.0:
+		if not (x['address'] in log['accounts']):
 			log['accounts'][x['address']] = { 'pending': 0.0, 'received': 0.0 }
 
 		# Check if the voter has a pending balance
