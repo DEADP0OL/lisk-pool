@@ -23,14 +23,14 @@ parser.add_argument('--min-payout', type=float, dest='minpayout', action='store'
                    help='override the minpayout value from config file')
 
 args = parser.parse_args ()
-	
+
 # Load the config file
 try:
 	conf = json.load (open (args.cfile, 'r'))
 except:
 	print ('Unable to load config file.')
 	sys.exit ()
-	
+    
 if 'logfile' in conf:
 	LOGFILE = conf['logfile']
 else:
@@ -60,6 +60,7 @@ def loadLog ():
 		data = {
 			"lastpayout": 0, 
 			"accounts": {},
+          "donations": {},
 			"skip": []
 		}
 	return data
@@ -69,7 +70,7 @@ def saveLog (log):
 	json.dump (log, open (LOGFILE, 'w'), indent=4, separators=(',', ': '))
 	
 def createPaymentLine (to, amount):
-	data = { "secret": conf['secret'], "amount": int (amount * 100000000), "recipientId": to }
+	data = { "secret": conf['secret'], "amount": '{0:.0f}'.format(amount * 100000000), "recipientId": to }
 	if conf['secondsecret'] != None:
 		data['secondSecret'] = conf['secondsecret']
 
@@ -81,22 +82,24 @@ def createPaymentLine (to, amount):
 			
 
 def estimatePayouts (log):
-	if conf['coin'].lower () == 'ark' or conf['coin'].lower () == 'kapu' :
+	if conf['coin'].lower () == 'ark' or conf['coin'].lower () == 'kapu' or conf['coin'].lower () == 'bpl' or conf['coin'].lower () == 'prs' or conf['coin'].lower () == 'xpx' :
 		uri = conf['node'] + '/api/delegates/forging/getForgedByAccount?generatorPublicKey=' + conf['pubkey']
 		d = requests.get (uri)
 		lf = log['lastforged']
-		rew = int (d.json ()['rewards']) 
-		log['lastforged'] = rew 
+		rew = float (d.json ()['rewards'])
+		log['lastforged'] = '{0:.0f}'.format(rew) 
 		rew = rew - lf
 	else:
 		uri = conf['node'] + '/api/delegates/forging/getForgedByAccount?generatorPublicKey=' + conf['pubkey'] + '&start=' + str (log['lastpayout']) + '&end=' + str (int (time.time ()))
 		d = requests.get (uri)
-		rew = d.json ()['rewards']
+		rew = float (d.json ()['rewards'])
 
-	forged = (int (rew) / 100000000) * conf['percentage'] / 100
+	rew = (rew / 100000000)
+	forged = rew*conf['percentage'] / 100
+	print ('Total forged: %f %s' % (rew, conf['coin']))
 	print ('To distribute: %f %s' % (forged, conf['coin']))
 	
-	if forged < 0.1:
+	if forged < .1:
 		return ([], log, 0.0)
 		
 	d = requests.get (conf['node'] + '/api/delegates/voters?publicKey=' + conf['pubkey']).json ()
@@ -105,7 +108,7 @@ def estimatePayouts (log):
 	payouts = []
 	
 	for x in d['accounts']:
-		if x['balance'] == '0' or x['address'] in conf['skip']:
+		if float (x['balance']) <= fees or x['address'] in conf['skip']:
 			continue
 
 		if conf['private'] and not (x['address'] in conf['whitelist']):
@@ -116,22 +119,21 @@ def estimatePayouts (log):
 	print ('Total weight is: %f' % weight)
 	
 	for x in d['accounts']:
-		if int (x['balance']) == 0 or x['address'] in conf['skip']:
+		if float (x['balance']) == 0 or x['address'] in conf['skip']:
 			continue
 			
 		if conf['private'] and not (x['address'] in conf['whitelist']):
 			continue
 
-		payouts.append ({ "address": x['address'], "balance": (float (x['balance']) / 100000000 * forged) / weight})
+		payouts.append ({ "address": x['address'], "balance": round(float (x['balance']) / 100000000 * forged / weight,4)})
 		#print (float (x['balance']) / 100000000, payouts [x['address']], x['address'])
 		
-	return (payouts, log, forged)
-	
+	return (payouts, log, forged, rew)
 	
 def pool ():
 	log = loadLog ()
 	
-	(topay, log, forged) = estimatePayouts (log)
+	(topay, log, forged, rew) = estimatePayouts (log)
 		
 	f = open ('payments.sh', 'w')
 
@@ -151,7 +153,7 @@ def pool ():
 		if x['address'] in log['accounts']:
 			pending = log['accounts'][x['address']]['pending']
 			
-		# If below minpayout, put in the accoutns pending and skip
+		# If below minpayout, put in the accounts pending and skip
 		if (x['balance'] + pending - fees) < conf['minpayout'] and x['balance'] > 0.0:
 			log['accounts'][x['address']]['pending'] += x['balance']
 			continue
@@ -165,8 +167,7 @@ def pool ():
 		f.write ('echo Sending ' + str (x['balance'] - fees) + ' \(+' + str (pending) + ' pending\) to ' + x['address'] + '\n')
 		f.write (createPaymentLine (x['address'], x['balance'] + pending - fees))
 
-			
-	# Handle pending balances
+	# Handle pending account balances
 	for y in log['accounts']:
 		# If the pending is above the minpayout, create the payout line
 		if log['accounts'][y]['pending'] - fees > conf['minpayout']:
@@ -175,22 +176,41 @@ def pool ():
 			
 			log['accounts'][y]['received'] += log['accounts'][y]['pending']
 			log['accounts'][y]['pending'] = 0.0
-			
-			
+
 	# Donations
 	if 'donations' in conf:
-		for y in conf['donations']:
-			f.write ('echo Sending donation ' + str (conf['donations'][y]) + ' to ' + y + '\n')
-			f.write (createPaymentLine (y, conf['donations'][y]))
+		for y in conf['donations']:  
+			# Create the row if not present
+			if not (y in log['donations']):
+				log['donations'][y] = { 'pending': 0.0, 'received': 0.0 }
+			try:  
+				if conf['donations'][y]>0:   
+					log['donations'][y]['pending']+=round(conf['donations'][y],3)
+			except:
+				pass
 
 
 	# Donation percentage
 	if 'donationspercentage' in conf:
-		for y in conf['donationspercentage']:
-			am = (forged * conf['donationspercentage'][y]) / 100
+		for y in conf['donationspercentage']:  
+			# Create the row if not present
+			if not (y in log['donations']):
+				log['donations'][y] = { 'pending': 0.0, 'received': 0.0 }
+			try:  
+				if conf['donationspercentage'][y]>0:   
+					log['donations'][y]['pending']+=round(rew*conf['donationspercentage'][y]/100,3)
+			except:
+				pass
+
+	# Handle pending donation balances
+	for y in log['donations']:
+		# If the pending is above the minpayout, create the payout line
+		if log['donations'][y]['pending'] - fees > conf['minpayout']:
+			f.write ('echo Sending pending ' + str (log['donations'][y]['pending']) + ' to ' + y + '\n')
+			f.write (createPaymentLine (y, log['donations'][y]['pending'] - fees))
 			
-			f.write ('echo Sending donation ' + str (conf['donationspercentage'][y]) + '% \(' + str (am) + 'LSK\) to ' + y + '\n')	
-			f.write (createPaymentLine (y, am))
+			log['donations'][y]['received'] += log['donations'][y]['pending']
+			log['donations'][y]['pending'] = 0.0
 
 	if ENABLE_VERSION_1:
 		f.write ("kill $DPOSFALLBACK_PID\n")
@@ -202,15 +222,16 @@ def pool ():
 	for acc in log['accounts']:
 		print (acc, '\tPending:', log['accounts'][acc]['pending'], '\tReceived:', log['accounts'][acc]['received'])
 	
+	for acc in log['donations']:
+		print (acc, '\tPending:', log['donations'][acc]['pending'], '\tReceived:', log['donations'][acc]['received'])
+    
 	if args.alwaysyes:
 		print ('Saving...')
 		saveLog (log)
 	else:
 		yes = input ('save? y/n: ')
 		if yes == 'y':
-			saveLog (log)
-			
-			
+			saveLog (log)	
 
-if __name__ == "__main__":
-	pool ()
+if __name__ == "__main__":    
+    pool ()
