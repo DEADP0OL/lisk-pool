@@ -85,9 +85,9 @@ def estimatePayouts (log):
 	if conf['coin'].lower () == 'ark' or conf['coin'].lower () == 'kapu' or conf['coin'].lower () == 'bpl' or conf['coin'].lower () == 'prs' or conf['coin'].lower () == 'xpx' :
 		uri = conf['node'] + '/api/delegates/forging/getForgedByAccount?generatorPublicKey=' + conf['pubkey']
 		d = requests.get (uri)
-		lf = log['lastforged']
+		lf = float (log['lastforged'])
 		rew = float (d.json ()['rewards'])
-		log['lastforged'] = '{0:.0f}'.format(rew) 
+		log['lastforged'] = rew 
 		rew = rew - lf
 	else:
 		uri = conf['node'] + '/api/delegates/forging/getForgedByAccount?generatorPublicKey=' + conf['pubkey'] + '&start=' + str (log['lastpayout']) + '&end=' + str (int (time.time ()))
