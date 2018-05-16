@@ -219,9 +219,11 @@ def pool ():
 	# Update last payout
 	log['lastpayout'] = int (time.time ())
 	
+	print('Payouts')
 	for acc in log['accounts']:
 		print (acc, '\tPending:', log['accounts'][acc]['pending'], '\tReceived:', log['accounts'][acc]['received'])
-	
+        
+	print('Donations')
 	for acc in log['donations']:
 		print (acc, '\tPending:', log['donations'][acc]['pending'], '\tReceived:', log['donations'][acc]['received'])
     
