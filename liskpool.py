@@ -70,7 +70,7 @@ def saveLog (log):
 	json.dump (log, open (LOGFILE, 'w'), indent=4, separators=(',', ': '))
 	
 def createPaymentLine (to, amount):
-	data = { "secret": conf['secret'], "amount": '{0:.0f}'.format(amount * 100000000), "recipientId": to }
+	data = { "secret": conf['secret'], "amount": int(amount * 100000000), "recipientId": to }
 	if conf['secondsecret'] != None:
 		data['secondSecret'] = conf['secondsecret']
 
